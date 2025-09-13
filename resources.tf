@@ -48,11 +48,11 @@ resource "aws_security_group" "app_web_sg" {
   
   # Allow HTTPS access from within the VPC
   ingress {
-    from_port   = 443
-    to_port     = 443
+    from_port   = 80
+    to_port     = 80
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
-    description = "Allow HTTPS access"
+    description = "Allow HTTP access"
   }
   # Allow SSH access from within the VPC
   ingress {
@@ -75,18 +75,6 @@ resource "aws_security_group" "app_web_sg" {
   }
 }
 
-# resource "aws_vpc_security_group_ingress_rul" "allow_https" {
-#   type              = "ingress"
-#   from_port        = 443
-#   to_port          = 443
-#   protocol         = "tcp"
-#   cidr_blocks      = [aws_vpc.app_vpc.cidr_block]
-#   security_group_id = aws_security_group.app_web_sg.id
-#   description      = "Allow HTTPS access from within the VPC"
-#   depends_on       = [aws_security_group.app_web_sg]
-  
-#   }
-
 # Create a network interface in the public subnet and associate it with the security group
 resource "aws_network_interface" "app_eni" {
   subnet_id       = aws_subnet.app_subnet.id
@@ -95,15 +83,6 @@ resource "aws_network_interface" "app_eni" {
   tags = {
     Name = "app_eni"
   }
-  
-}
-
-
-#Create a network interface attachment to attach the network interface to the EC2 instance
-resource "aws_network_interface_attachment" "app_eni_attachment" {
-  instance_id          = aws_instance.app_instance.id
-  network_interface_id = aws_network_interface.app_eni.id
-  device_index         = 0
   
 }
 
@@ -117,15 +96,49 @@ resource "aws_eip" "app_eip" {
   }
 }
 
+
 # Create an EC2 instance in the public subnet using the Amazon Linux 2 AMI and t2.micro instance type in us-east-1a availability zone with the key pair named "SSH client PuTTy" and associate it with the network interface
 resource "aws_instance" "app_instance" {
   ami           = "ami-0b09ffb6d8b58ca91" # Amazon Linux 2 AMI in us-east-1
   instance_type = "t2.micro"
   availability_zone = "us-east-1a"
-  key_name      = "SSH client PuTTy"
-  network_interface {
+  key_name      = "SSH Client PuTTy"
+  network_interface{
     network_interface_id = aws_network_interface.app_eni.id
     device_index         = 0
+  }
+
+  connection {
+    type        = "ssh"
+    user        = "ec2-user"
+    private_key = file("G:/Sazan/SSH Client PuTTy.pem")
+    host        = aws_eip.app_eip.public_ip
+  }
+
+    provisioner "remote-exec" {
+    inline = [
+      "mkdir -p /home/ec2-user/flaskapp/templates",
+    ]
+  }
+  # Upload the index.html file to the instance and set up a simple Flask application to serve it
+  provisioner "file" {
+    source      = "G:/Sazan/App Deployment/templates/index.html"
+    destination = "/home/ec2-user/flaskapp/templates/index.html"
+  }
+  # Upload app.py to the instance to run the Flask application
+  provisioner "file" {
+    source      = "G:/Sazan/App Deployment/app.py"
+    destination = "/home/ec2-user/flaskapp/app.py"
+  }
+  # Start the Flask application using python3 (app.py) in the background 
+  provisioner "remote-exec" {
+    inline = [
+      "sudo yum update -y",
+      "sudo yum install -y python3 python3-pip",
+      "sudo pip3 install flask",
+      "cd /home/ec2-user/flaskapp",
+      "sudo python3 app.py"
+    ]
   }
 
   tags = {
